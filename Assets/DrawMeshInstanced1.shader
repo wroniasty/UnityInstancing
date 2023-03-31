@@ -1,4 +1,4 @@
-Shader "Unlit/DrawMeshInstanced1"
+Shader "Squad/DrawMeshInstanced1"
 {
     Properties
     {
@@ -12,6 +12,8 @@ Shader "Unlit/DrawMeshInstanced1"
         Pass
         {
             CGPROGRAM
+// Upgrade NOTE: excluded shader from OpenGL ES 2.0 because it uses non-square matrices
+#pragma exclude_renderers gles
             #pragma vertex vert
             #pragma fragment frag
             // make fog work
@@ -33,29 +35,47 @@ Shader "Unlit/DrawMeshInstanced1"
 
             UNITY_INSTANCING_BUFFER_START(Props)
                 UNITY_DEFINE_INSTANCED_PROP(float4, _Color)
-            UNITY_INSTANCING_BUFFER_END(Props)            
+            UNITY_INSTANCING_BUFFER_END(Props)
 
-            v2f vert (appdata_full v)
+            struct InstanceData
+            {
+                fixed4 color;
+                uint spriteIndex;
+            };
+
+            struct SpriteData
+            {
+                float4 uv;
+            };
+            
+            StructuredBuffer<InstanceData> instance;
+            StructuredBuffer<SpriteData> sprites;
+
+            v2f vert (appdata_full v,  uint instanceID : SV_InstanceID)
             {
                 UNITY_SETUP_INSTANCE_ID(v);	
                 v2f o;
                 UNITY_TRANSFER_INSTANCE_ID(v, o);	
                 o.vertex = UnityObjectToClipPos(v.vertex);
+                float4 uv = sprites[instance[instanceID].spriteIndex].uv;
                 o.uv = TRANSFORM_TEX(v.texcoord, _MainTex);
+                o.uv = o.uv * uv.xy + uv.zw;
                 UNITY_TRANSFER_FOG(o,o.vertex);
                 return o;
             }
 
-            fixed4 frag (v2f i) : SV_Target
+            fixed4 frag (v2f i, uint instanceID : SV_InstanceID) : SV_Target
             {
                 // sample the texture
                 UNITY_SETUP_INSTANCE_ID(i);
-                fixed4 col = tex2D(_MainTex, i.uv);
-                // apply fog
+                fixed4 col;
+                col = tex2D(_MainTex, i.uv) * instance[instanceID].color;
                 UNITY_APPLY_FOG(i.fogCoord, col);
+                clip(col.a - 1.0f / 256.f);
                 return col;
             }
             ENDCG
         }
     }
+
 }

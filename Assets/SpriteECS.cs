@@ -82,9 +82,12 @@ namespace Squad
                     for (var sliceIndex = 0; sliceIndex < sprites.Length; sliceIndex++)
                     {
                         var sprite = sprites[sliceIndex];
+                        float2 uv0 = sprite.uv[1] - sprite.uv[2]; // uv[2] should contain the texcoord with largest x,y
+                        float2 uv1 = sprite.uv[2];  // uv[2] should contain the texcoord with smallest x,y
+                        
                         sliceBufer.Add(new SpriteSliceComponent()
                         {
-                            uv = new float4(sprite.uv[0], sprite.uv[1]),
+                            uv = new float4(uv0, uv1),
                             pivot = sprite.pivot / sprite.pixelsPerUnit
                         });
                     }

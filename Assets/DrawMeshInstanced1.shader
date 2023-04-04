@@ -46,10 +46,11 @@ Shader "Squad/DrawMeshInstanced1"
             struct SpriteData
             {
                 float4 uv;
+                float2 pivot;
             };
             
-            StructuredBuffer<InstanceData> instance;
-            StructuredBuffer<SpriteData> sprites;
+            StructuredBuffer<InstanceData> _Instance;
+            StructuredBuffer<SpriteData> _Sprites;
 
             v2f vert (appdata_full v,  uint instanceID : SV_InstanceID)
             {
@@ -57,7 +58,7 @@ Shader "Squad/DrawMeshInstanced1"
                 v2f o;
                 UNITY_TRANSFER_INSTANCE_ID(v, o);	
                 o.vertex = UnityObjectToClipPos(v.vertex);
-                float4 uv = sprites[instance[instanceID].spriteIndex].uv;
+                float4 uv = _Sprites[_Instance[instanceID].spriteIndex].uv;
                 o.uv = TRANSFORM_TEX(v.texcoord, _MainTex);
                 o.uv = o.uv * uv.xy + uv.zw;
                 UNITY_TRANSFER_FOG(o,o.vertex);
@@ -69,7 +70,7 @@ Shader "Squad/DrawMeshInstanced1"
                 // sample the texture
                 UNITY_SETUP_INSTANCE_ID(i);
                 fixed4 col;
-                col = tex2D(_MainTex, i.uv) * instance[instanceID].color;
+                col = tex2D(_MainTex, i.uv) * _Instance[instanceID].color;
                 UNITY_APPLY_FOG(i.fogCoord, col);
                 clip(col.a - 1.0f / 256.f);
                 return col;

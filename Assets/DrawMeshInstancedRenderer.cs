@@ -145,7 +145,7 @@ public class DrawMeshInstancedRenderer : MonoBehaviour
         spriteBuffer =
             new GraphicsBuffer(GraphicsBuffer.Target.Structured, spriteSheetSize, Marshal.SizeOf<SpriteData>());
         spriteBuffer.SetData(spriteData);
-        material.SetBuffer("sprites", spriteBuffer);
+        material.SetBuffer("_Sprites", spriteBuffer);
         material.mainTexture = texture;
         
         spriteData.Dispose();
@@ -191,7 +191,7 @@ public class DrawMeshInstancedRenderer : MonoBehaviour
         jobHandle.Complete();
         
         instanceBuffer.SetData(instanceData);
-        material.SetBuffer("instance", instanceBuffer);
+        material.SetBuffer("_Instance", instanceBuffer);
         
         Graphics.DrawMeshInstanced(mesh, 0, material, instanceTransform.ToArray());
     }

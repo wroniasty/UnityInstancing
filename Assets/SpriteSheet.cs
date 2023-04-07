@@ -6,6 +6,7 @@ namespace Squad
     public class SpriteSheet : MonoBehaviour
     {
         public Texture2D[] textures;
+        public int demoEntities = 1000;
     }
     
     public struct SpriteSheetContainer : IComponentData {}
@@ -20,7 +21,7 @@ namespace Squad
             for (var i = 0; i < authoring.textures.Length; i++)
             {
                 var ess = CreateAdditionalEntity(TransformUsageFlags.None);
-                AddComponentObject(ess, new SpriteSheetInitComponent() { texture = authoring.textures[i]});
+                AddComponentObject(ess, new SpriteSheetInitComponent() { texture = authoring.textures[i], demoEntitiesCount = authoring.demoEntities });
             }
 
         }

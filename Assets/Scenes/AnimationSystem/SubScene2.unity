@@ -155,6 +155,7 @@ MonoBehaviour:
   textures:
   - {fileID: 2800000, guid: 3cd751375ced6b046a3dd149976d635d, type: 3}
   - {fileID: 2800000, guid: 6863a4a6a56135240a9feb0e10318a62, type: 3}
+  demoEntities: 100000
 --- !u!4 &1063654546
 Transform:
   m_ObjectHideFlags: 0

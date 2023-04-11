@@ -35,7 +35,7 @@ namespace Squad
         
         public bool Equals(SpriteMaterialComponent other)
         {
-            return material = other.material;
+            return material == other.material;
         }
 
         public override int GetHashCode()
@@ -133,18 +133,23 @@ namespace Squad
                 .WithAll<SpriteInstanceSpawning>()
                 .ForEach((Entity e, in SpriteInstanceSpawning i) =>
                 {
-                    var spc = cntrs[i.spriteSheet];
+                    //var spc = cntrs[i.spriteSheet];
+                    //if (!instanceCount.ContainsKey(i.spriteSheet)) instanceCount.Add(i.spriteSheet, cntrs[i.spriteSheet].activeInstances);
+//                    Debug.Log($"Spawning sprite from {i.spriteSheet}[{i.spriteIndex}] bufferIndex={instanceCount[i.spriteSheet]}");
+                    var spc = SystemAPI.GetComponentRW<SpriteMaterialComponentInstancesCounter>(i.spriteSheet, false);
                     ecb.AddComponent<SpriteComponent>(e);
                     ecb.SetComponent(e, new SpriteComponent()
                     {
                         spriteIndex = i.spriteIndex,
                         spriteSheet = i.spriteSheet,
-                        bufferIndex = spc.activeInstances
+                        bufferIndex = spc.ValueRO.activeInstances,
                     });
-                    ecb.SetComponent(i.spriteSheet, new SpriteMaterialComponentInstancesCounter()
-                    {
-                        activeInstances = spc.activeInstances++
-                    });
+                    //spc.ValueRW.activeInstances += 1;
+                    //instanceCount[i.spriteSheet] += 1;
+                    //ecb.SetComponent(i.spriteSheet, new SpriteMaterialComponentInstancesCounter()
+                    //{
+                    //    activeInstances = instanceCount[i.spriteSheet]
+                    //});
                     ecb.RemoveComponent<SpriteInstanceSpawning>(e);
                 })
                 .WithoutBurst()
@@ -170,8 +175,7 @@ namespace Squad
 
         protected override void OnUpdate()
         {
-            if (!initialized)
-            {
+
                 NativeList<LocalTransform> transforms =
                     query.ToComponentDataListAsync<LocalTransform>(Allocator.TempJob, out JobHandle transformsHandle);
                 NativeList<SpriteComponent> spriteComponents =
@@ -216,8 +220,7 @@ namespace Squad
                     .WithDisposeOnCompletion(transforms)
                     .WithDisposeOnCompletion(spriteComponents)
                     .ScheduleParallel(Dependency);
-//                initialized = true;
-            }
+
         }
     }
     

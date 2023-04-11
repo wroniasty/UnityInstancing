@@ -123,7 +123,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &1063654544
+--- !u!1 &364058810
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -131,8 +131,8 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 1063654546}
-  - component: {fileID: 1063654545}
+  - component: {fileID: 364058812}
+  - component: {fileID: 364058811}
   m_Layer: 0
   m_Name: GameObject
   m_TagString: Untagged
@@ -140,13 +140,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1063654545
+--- !u!114 &364058811
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1063654544}
+  m_GameObject: {fileID: 364058810}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 36a0669ffd904292b588affe2c1c4e06, type: 3}
@@ -155,16 +155,16 @@ MonoBehaviour:
   textures:
   - {fileID: 2800000, guid: 3cd751375ced6b046a3dd149976d635d, type: 3}
   - {fileID: 2800000, guid: 6863a4a6a56135240a9feb0e10318a62, type: 3}
-  demoEntities: 100000
---- !u!4 &1063654546
+  demoEntities: 1000
+--- !u!4 &364058812
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1063654544}
+  m_GameObject: {fileID: 364058810}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: -0.560928, y: 1.2061083, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []

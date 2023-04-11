@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using DefaultNamespace;
 using TreeEditor;
 using Unity.Burst.Intrinsics;
@@ -23,13 +24,14 @@ namespace Squad
 
     public class SpriteMaterialComponent : IComponentData, IEquatable<SpriteMaterialComponent>, IDisposable
     {
+        public Entity spriteSheet;
         public Material material;
         public GraphicsBuffer spriteDataBuffer;
         public GraphicsBuffer instanceDataBuffer;
         
         public int slices;
 
-        public int activeInstances = 0;
+        //public int activeInstances = 0;
         
         public bool Equals(SpriteMaterialComponent other)
         {
@@ -45,7 +47,31 @@ namespace Squad
         {
             spriteDataBuffer?.Release();
         }
-        
+
+        // public SpriteComponent getInstanceComponent(uint spriteIndex)
+        // {
+        //     var instance = this.activeInstances++;
+        //     //Interlocked.Increment(ref this.activeInstances);
+        //     //Debug.Log($"Adding instance[{this.activeInstances}] for {this.material.name}[{spriteIndex}]");
+        //     return new SpriteComponent()
+        //     {
+        //         bufferIndex = instance, 
+        //         spriteIndex = spriteIndex,
+        //         spriteSheet = spriteSheet
+        //     };
+        //     
+        // }
+    }
+
+    public struct SpriteMaterialComponentInstancesCounter : IComponentData
+    {
+        public int activeInstances;
+    }
+
+    public class SpriteInstanceSpawning : IComponentData
+    {
+        public Entity spriteSheet;
+        public uint spriteIndex;
     }
 
     
@@ -82,8 +108,51 @@ namespace Squad
     {
         public Matrix4x4 transform;
     }
-    
-    
+
+
+    [UpdateInGroup(typeof(PresentationSystemGroup))]
+    [UpdateBefore(typeof(SpriteSheetRenderSystem))]
+    public partial class SpriteSheetSpawningSystem : SystemBase
+    {
+        public EntityQuery query;
+        protected override void OnCreate()
+        {
+            query = GetEntityQuery(
+                ComponentType.ReadOnly<LocalTransform>(), 
+                ComponentType.ReadOnly<SpriteInstanceSpawning>()
+            );
+        }
+
+        protected override void OnUpdate()
+        {
+            var ecbSystem = World.GetOrCreateSystemManaged<EndSimulationEntityCommandBufferSystem>();
+            var ecb = ecbSystem.CreateCommandBuffer();
+            var cntrs = GetComponentLookup<SpriteMaterialComponentInstancesCounter>();
+            
+            Entities
+                .WithAll<SpriteInstanceSpawning>()
+                .ForEach((Entity e, in SpriteInstanceSpawning i) =>
+                {
+                    var spc = cntrs[i.spriteSheet];
+                    ecb.AddComponent<SpriteComponent>(e);
+                    ecb.SetComponent(e, new SpriteComponent()
+                    {
+                        spriteIndex = i.spriteIndex,
+                        spriteSheet = i.spriteSheet,
+                        bufferIndex = spc.activeInstances
+                    });
+                    ecb.SetComponent(i.spriteSheet, new SpriteMaterialComponentInstancesCounter()
+                    {
+                        activeInstances = spc.activeInstances++
+                    });
+                    ecb.RemoveComponent<SpriteInstanceSpawning>(e);
+                })
+                .WithoutBurst()
+                .Run();
+        }
+
+    }
+
     [UpdateInGroup(typeof(PresentationSystemGroup))]
     [UpdateBefore(typeof(SpriteSheetRenderSystem))]
     public partial class SpriteSheetPreparationSystem : SystemBase
@@ -93,7 +162,10 @@ namespace Squad
 
         protected override void OnCreate()
         {
-            query = GetEntityQuery(ComponentType.ReadOnly<LocalTransform>(), ComponentType.ReadOnly<SpriteComponent>());
+            query = GetEntityQuery(
+                ComponentType.ReadOnly<LocalTransform>(), 
+                ComponentType.ReadOnly<SpriteComponent>()
+                );
         }
 
         protected override void OnUpdate()
@@ -105,6 +177,21 @@ namespace Squad
                 NativeList<SpriteComponent> spriteComponents =
                     query.ToComponentDataListAsync<SpriteComponent>(Allocator.TempJob, out JobHandle spcHandle);
                 Dependency = JobHandle.CombineDependencies(Dependency, transformsHandle, spcHandle);
+
+                Entities
+                    .WithAll<SpriteMaterialComponent>()
+                    .ForEach((Entity e, SpriteMaterialComponent sps, SpriteMaterialComponentInstancesCounter c, ref DynamicBuffer<SpriteInstanceBuffer> ib,
+                        ref DynamicBuffer<SpriteInstanceTransformBuffer> tb) =>
+                    {
+                        if (c.activeInstances > 0)
+                        {
+                            if (ib.Length != c.activeInstances) ib.Resize(c.activeInstances, NativeArrayOptions.ClearMemory);
+                            if (tb.Length != c.activeInstances) tb.Resize(c.activeInstances, NativeArrayOptions.ClearMemory);
+                        }
+                    })
+                    .WithoutBurst()
+                    .Run();
+
 
                 Dependency = Entities
                     .WithReadOnly(transforms)
@@ -129,7 +216,7 @@ namespace Squad
                     .WithDisposeOnCompletion(transforms)
                     .WithDisposeOnCompletion(spriteComponents)
                     .ScheduleParallel(Dependency);
-                initialized = true;
+//                initialized = true;
             }
         }
     }
@@ -148,13 +235,16 @@ namespace Squad
         {
             Entities
                 .WithAll<SpriteMaterialComponent>()
-                .ForEach((Entity e, in SpriteMaterialComponent sps, in DynamicBuffer<SpriteInstanceBuffer> ib,
+                .ForEach((Entity e, in SpriteMaterialComponent sps, in SpriteMaterialComponentInstancesCounter c, in DynamicBuffer<SpriteInstanceBuffer> ib,
                     in DynamicBuffer<SpriteInstanceTransformBuffer> tb) =>
                 {
-                    sps.instanceDataBuffer.SetData(ib.ToNativeArray(Allocator.Temp));
-                    sps.material.SetBuffer("_Instance", sps.instanceDataBuffer);
-                    Graphics.DrawMeshInstanced(quad, 0, sps.material, 
-                        tb.Reinterpret<Matrix4x4>().ToNativeArray(Allocator.Temp).ToArray());
+                    if (c.activeInstances > 0)
+                    {
+                        sps.instanceDataBuffer.SetData(ib.ToNativeArray(Allocator.Temp));
+                        sps.material.SetBuffer("_Instance", sps.instanceDataBuffer);
+                        Graphics.DrawMeshInstanced(quad, 0, sps.material,
+                            tb.Reinterpret<Matrix4x4>().ToNativeArray(Allocator.Temp).ToArray());
+                    }
                 })
                 .WithoutBurst()
                 .Run();
@@ -202,34 +292,6 @@ namespace Squad
                     
                     spriteDataBuffer.SetData(sliceBufer.ToNativeArray(Allocator.Temp));
                     
-                    var instanceTransforms = ecb.AddBuffer<SpriteInstanceTransformBuffer>(e);
-                    var instanceBuffer = ecb.AddBuffer<SpriteInstanceBuffer>(e);
-
-                    EntityArchetype ea = EntityManager.CreateArchetype(
-                        typeof(LocalTransform),
-                        typeof(SpriteComponent)
-                    );
-                    
-                    for (var instance = 0; instance < i.demoEntitiesCount; instance++)
-                    {
-                        var ei = ecb.CreateEntity(ea);
-                        ecb.SetComponent(ei, LocalTransform.FromPositionRotationScale(
-                            rnd.NextFloat3(-10, 10),
-                            Quaternion.Euler(0,0, rnd.NextFloat(-180, 180)),
-                            rnd.NextFloat(0.25f, 1.25f)
-                        ));
-                        ecb.SetComponent(ei, new SpriteComponent()
-                        {
-                            spriteIndex = rnd.NextUInt(0, (uint) sprites.Length),
-                            spriteSheet = e,
-                            bufferIndex = instance
-                        });
-                    }
-                    
-                    var instanceDataBuffer = new GraphicsBuffer(GraphicsBuffer.Target.Structured, 
-                        i.demoEntitiesCount, //8192*2,
-                         Marshal.SizeOf<SpriteInstanceBuffer>());
-
                     var spriteMaterial = new SpriteMaterialComponent()
                     {
                         material = new Material(Shader.Find("Squad/DrawMeshInstanced1"))
@@ -239,17 +301,51 @@ namespace Squad
                         },
                         slices = sprites.Length,
                         spriteDataBuffer = spriteDataBuffer,
-                        instanceDataBuffer = instanceDataBuffer,
-                        activeInstances = i.demoEntitiesCount
+                        instanceDataBuffer =  new GraphicsBuffer(GraphicsBuffer.Target.Structured, 
+                            8192*2,
+                            Marshal.SizeOf<SpriteInstanceBuffer>()),
+                        spriteSheet = e
                     };
-                    
-                    instanceBuffer.Resize(i.demoEntitiesCount, NativeArrayOptions.ClearMemory);
-                    instanceTransforms.Resize(i.demoEntitiesCount, NativeArrayOptions.ClearMemory);
-                    
+
                     spriteMaterial.material.SetBuffer("_Sprites", spriteMaterial.spriteDataBuffer);
-//                    spriteMaterial.material.SetBuffer("_Instance", instanceDataBuffer);
+                    
+                    var instanceTransforms = ecb.AddBuffer<SpriteInstanceTransformBuffer>(e);
+                    var instanceBuffer = ecb.AddBuffer<SpriteInstanceBuffer>(e);
+
+                    //
+                    EntityArchetype ea = EntityManager.CreateArchetype(
+                        typeof(LocalTransform),
+                        //typeof(SpriteComponent)
+                        typeof(SpriteInstanceSpawning)
+                    );
+                    //
+                    for (var instance = 0; instance < i.demoEntitiesCount; instance++)
+                    {
+                        var ei = ecb.CreateEntity(ea);
+                        ecb.SetComponent(ei, LocalTransform.FromPositionRotationScale(
+                            rnd.NextFloat3(-10, 10),
+                            Quaternion.Euler(0,0, rnd.NextFloat(-180, 180)),
+                            rnd.NextFloat(0.25f, 1.25f)
+                        ));
+                        //ecb.SetComponent(ei, spriteMaterial.getInstanceComponent(rnd.NextUInt(0, (uint) sprites.Length)));
+                        ecb.SetComponent(ei, new SpriteInstanceSpawning()
+                        {
+                            spriteIndex = rnd.NextUInt(0, (uint) sprites.Length),
+                            spriteSheet = e
+                        });
+                    }
+                    //
+                    //
+  
+                    
+                    //instanceBuffer.Resize(spriteMaterial.activeInstances > 0 ? spriteMaterial.activeInstances : 1, NativeArrayOptions.ClearMemory);
+                    //instanceTransforms.Resize(spriteMaterial.activeInstances > 0 ? spriteMaterial.activeInstances : 1, NativeArrayOptions.ClearMemory);
                     
                     ecb.AddComponent(e, spriteMaterial);
+                    ecb.AddComponent(e, new SpriteMaterialComponentInstancesCounter()
+                    {
+                        activeInstances = 0
+                    });
                     ecb.RemoveComponent<SpriteSheetInitComponent>(e);
                 })
                 .WithoutBurst()

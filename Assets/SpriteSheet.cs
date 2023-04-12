@@ -21,7 +21,7 @@ namespace Squad
             for (var i = 0; i < authoring.textures.Length; i++)
             {
                 var ess = CreateAdditionalEntity(TransformUsageFlags.None);
-                AddComponentObject(ess, new SpriteSheetInitComponent() { texture = authoring.textures[i], demoEntitiesCount = authoring.demoEntities });
+                AddComponentObject(ess, new SpriteECS.SpriteSheetInitComponent() { texture = authoring.textures[i], demoEntitiesCount = authoring.demoEntities });
             }
 
         }

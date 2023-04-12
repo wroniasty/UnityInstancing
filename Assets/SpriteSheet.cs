@@ -1,4 +1,5 @@
-﻿using Unity.Entities;
+﻿using System;
+using Unity.Entities;
 using UnityEngine;
 
 namespace Squad
@@ -7,6 +8,8 @@ namespace Squad
     {
         public Texture2D[] textures;
         public int demoEntities = 1000;
+
+
     }
     
     public struct SpriteSheetContainer : IComponentData {}

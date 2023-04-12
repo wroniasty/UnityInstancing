@@ -8,6 +8,7 @@ using DefaultNamespace;
 using TreeEditor;
 using Unity.Burst.Intrinsics;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 using Unity.Entities;
 using Unity.Jobs;
@@ -132,9 +133,76 @@ namespace Squad.SpriteECS
     
     [UpdateInGroup(typeof(PresentationSystemGroup))]
     [UpdateAfter(typeof(UpdatePresentationSystemGroup))]
-    public partial class SpritesRenderingGroup : ComponentSystemGroup {}    
-    
+    public partial class SpritesRenderingGroup : ComponentSystemGroup {}
 
+
+    [UpdateInGroup(typeof(SpritesProvisioningGroup), OrderFirst = true)]
+    public partial class SpritesCommandBufferSystem : EntityCommandBufferSystem
+    {
+        /// <summary>
+        /// Call <see cref="SystemAPI.GetSingleton{T}"/> to get this component for this system, and then call
+        /// <see cref="CreateCommandBuffer"/> on this singleton to create an ECB to be played back by this system.
+        /// </summary>
+        /// <remarks>
+        /// Useful if you want to record entity commands now, but play them back at a later point in
+        /// the frame, or early in the next frame.
+        /// </remarks>
+        public unsafe struct Singleton : IComponentData, IECBSingleton
+        {
+            internal UnsafeList<EntityCommandBuffer>* pendingBuffers;
+            internal AllocatorManager.AllocatorHandle allocator;
+
+            /// <summary>
+            /// Create a command buffer for the parent system to play back.
+            /// </summary>
+            /// <remarks>The command buffers created by this method are automatically added to the system's list of
+            /// pending buffers.</remarks>
+            /// <param name="world">The world in which to play it back.</param>
+            /// <returns>The command buffer to record to.</returns>
+            public EntityCommandBuffer CreateCommandBuffer(WorldUnmanaged world)
+            {
+                return EntityCommandBufferSystem.CreateCommandBuffer(ref *pendingBuffers, allocator, world);
+            }
+
+            /// <summary>
+            /// Sets the list of command buffers to play back when this system updates.
+            /// </summary>
+            /// <remarks>This method is only intended for internal use, but must be in the public API due to language
+            /// restrictions. Command buffers created with <see cref="CreateCommandBuffer"/> are automatically added to
+            /// the system's list of pending buffers to play back.</remarks>
+            /// <param name="buffers">The list of buffers to play back. This list replaces any existing pending command buffers on this system.</param>
+            public void SetPendingBufferList(ref UnsafeList<EntityCommandBuffer> buffers)
+            {
+                pendingBuffers = (UnsafeList<EntityCommandBuffer>*)UnsafeUtility.AddressOf(ref buffers);
+            }
+
+            /// <summary>
+            /// Set the allocator that command buffers created with this singleton should be allocated with.
+            /// </summary>
+            /// <param name="allocatorIn">The allocator to use</param>
+            public void SetAllocator(Allocator allocatorIn)
+            {
+                allocator = allocatorIn;
+            }
+
+            /// <summary>
+            /// Set the allocator that command buffers created with this singleton should be allocated with.
+            /// </summary>
+            /// <param name="allocatorIn">The allocator to use</param>
+            public void SetAllocator(AllocatorManager.AllocatorHandle allocatorIn)
+            {
+                allocator = allocatorIn;
+            }
+        }
+        /// <inheritdoc cref="EntityCommandBufferSystem.OnCreate"/>
+        protected override void OnCreate()
+        {
+            base.OnCreate();
+
+            this.RegisterSingleton<Singleton>(ref PendingBuffers, World.Unmanaged);
+        }        
+    }    
+    
     [UpdateInGroup(typeof(SpritesProvisioningGroup))]
     [UpdateBefore(typeof(SpriteSheetPreparationSystem))]
     public partial struct SpriteSheetSpawningSystem : ISystem
@@ -156,6 +224,7 @@ namespace Squad.SpriteECS
             _instancesCounter.Update(ref state);
 
             var count = new NativeHashMap<Entity, int>(16, Allocator.Temp);
+            var totalSpawned = 0;
             
             foreach (var (inst, e) in SystemAPI.Query<RefRO<SpriteInstanceSpawning>>().WithEntityAccess())
             {
@@ -175,10 +244,14 @@ namespace Squad.SpriteECS
                 _ecb.AddComponent<TimeToLive>(e);
                 _ecb.SetComponent(e, new TimeToLive()
                 {
-                    ttl = _rnd.NextFloat(1f, 3f)
+                    ttl = _rnd.NextFloat(1f, 15f)
                 });
                 _ecb.RemoveComponent<SpriteInstanceSpawning>(e);
+                totalSpawned++;
             }
+            
+            //if (totalSpawned > 0)
+                //Debug.Log($"Spawner: {totalSpawned}");
 
             foreach (var ssCntr in count)
             {
@@ -215,8 +288,9 @@ namespace Squad.SpriteECS
         
         public void OnUpdate(ref SystemState state)
         {
-            var ecbSystem = state.World.GetOrCreateSystemManaged<EndSimulationEntityCommandBufferSystem>();
+            var ecbSystem = state.World.GetOrCreateSystemManaged<SpritesCommandBufferSystem>();
             _ecb = ecbSystem.CreateCommandBuffer();
+            //_ecb = new EntityCommandBuffer(Allocator.Temp, PlaybackPolicy.SinglePlayback);
             
             _instancesCounter.Update(ref state);
             _i2eBuffer.Update(ref state);
@@ -224,6 +298,8 @@ namespace Squad.SpriteECS
             //
             state.Dependency.Complete();
             var count = new NativeHashMap<Entity, int>(16, Allocator.Temp);
+
+            var despawnCount = 0;
             //
             foreach (var (desp,inst, e) in SystemAPI.Query<RefRO<SpriteInstanceDespawning>, RefRO<SpriteComponent>>().WithEntityAccess())
             {
@@ -231,7 +307,7 @@ namespace Squad.SpriteECS
                 var i2e = _i2eBuffer[spriteSheetEntity];
 
                 _ecb.RemoveComponent<SpriteInstanceDespawning>(e);
-                //_ecb.RemoveComponent<SpriteComponent>(e);
+                _ecb.RemoveComponent<SpriteComponent>(e);
                 
                 if (!count.ContainsKey(inst.ValueRO.spriteSheet))
                 {
@@ -255,7 +331,10 @@ namespace Squad.SpriteECS
                 }
 
                 count[spriteSheetEntity]--;
+                despawnCount++;
             }
+            
+            //Debug.Log($"Despawned: {despawnCount}");
             
             foreach (var ssCntr in count)
             {
@@ -265,6 +344,7 @@ namespace Squad.SpriteECS
                 });
             }
             
+            //_ecb.Playback(state.EntityManager);
             count.Dispose();
         }
 
@@ -367,10 +447,11 @@ namespace Squad.SpriteECS
 
         public void OnUpdate(ref SystemState state)
         {
-            var ecbSystem = state.World.GetOrCreateSystemManaged<EndSimulationEntityCommandBufferSystem>();
+            var ecbSystem = state.World.GetOrCreateSystemManaged<SpritesCommandBufferSystem>();
             var _ecb = ecbSystem.CreateCommandBuffer();
+            //var _ecb = new EntityCommandBuffer(Allocator.Temp, PlaybackPolicy.SinglePlayback); 
             float deltaTime = SystemAPI.Time.DeltaTime;
-
+            int expired = 0;
             foreach (var (t, e) in SystemAPI.Query<RefRW<TimeToLive>>().WithEntityAccess())
             {
                 t.ValueRW.ttl -= deltaTime;
@@ -378,9 +459,16 @@ namespace Squad.SpriteECS
                 {
                     _ecb.RemoveComponent<TimeToLive>(e);
                     _ecb.AddComponent<SpriteInstanceDespawning>(e);
+                    expired++;
                     //_ecb.DestroyEntity(e);
                 }
             }
+
+            if (expired > 0)
+            {
+                Debug.Log($"Expired: {expired}");
+            }
+            //_ecb.Playback(state.EntityManager);
         }
 
         
@@ -404,12 +492,14 @@ namespace Squad.SpriteECS
                 .ForEach((Entity e, in SpriteMaterialComponent sps, in SpriteMaterialComponentInstancesCounter c, in DynamicBuffer<SpriteInstanceBuffer> ib,
                     in DynamicBuffer<SpriteInstanceTransformBuffer> tb) =>
                 {
-                    if (c.activeInstances > 0)
+                    if (c.activeInstances > 0 && tb.Length > 0)
                     {
+                        var transformMatrices = tb.Reinterpret<Matrix4x4>().ToNativeArray(Allocator.Temp).Slice(0, c.activeInstances).ToArray();
                         sps.instanceDataBuffer.SetData(ib.ToNativeArray(Allocator.Temp));
                         sps.material.SetBuffer("_Instance", sps.instanceDataBuffer);
-                        Graphics.DrawMeshInstanced(quad, 0, sps.material,
-                            tb.Reinterpret<Matrix4x4>().ToNativeArray(Allocator.Temp).ToArray());
+                        Graphics.DrawMeshInstanced(quad, 0, sps.material, transformMatrices
+                            );
+                        //Debug.Log($"Rendered {c.activeInstances} of {sps.material.mainTexture.name}");
                     }
                 })
                 .WithoutBurst()
@@ -421,22 +511,36 @@ namespace Squad.SpriteECS
     public partial class SpriteSheetBakingSystem : SystemBase
     {
         private MRandom rnd;
+
+        public struct SpritesheetInfo
+        {
+            public Entity spriteSheet;
+            public int spritesCount;
+        }
+        
+        public NativeList<SpritesheetInfo> spritesheets;
         protected override void OnCreate()
         {
             rnd = new MRandom((uint) DateTime.Now.Ticks);
+            spritesheets = new NativeList<SpritesheetInfo>(Allocator.Persistent);
         }
+        
+                
 
         protected override void OnUpdate()
         {
-            var ecbSystem = World.GetOrCreateSystemManaged<EndSimulationEntityCommandBufferSystem>();
+            var ecbSystem = World.GetOrCreateSystemManaged<SpritesCommandBufferSystem>();
             var ecb = ecbSystem.CreateCommandBuffer();
+
+            //var ecbSystem = World.GetOrCreateSystemManaged<EndSimulationEntityCommandBufferSystem>();
+            //var ecb = ecbSystem.CreateCommandBuffer();
             Entities
                 .WithAll<SpriteSheetInitComponent>()
                 .ForEach((Entity e, in SpriteSheetInitComponent i) =>
                 {
                     var sprites = AssetDatabase.LoadAllAssetsAtPath(AssetDatabase.GetAssetPath(i.texture)).OfType<Sprite>()
                         .ToArray();
-                    Debug.Log($"Init sprites {i.texture.name} ({sprites.Length})");
+                    //Debug.Log($"Init sprites {i.texture.name} ({sprites.Length})");
                     var sliceBufer = ecb.AddBuffer<SpriteSliceComponent>(e);
                     var bufferIndexToEntity = ecb.AddBuffer<BufferIndexToEntityMap>(e);
                     ecb.SetName(e, new FixedString64Bytes($"SpriteSheet({i.texture.name})"));
@@ -473,6 +577,8 @@ namespace Squad.SpriteECS
                             Marshal.SizeOf<SpriteInstanceBuffer>()),
                         spriteSheet = e
                     };
+                    
+                    spritesheets.Add( new SpritesheetInfo() { spritesCount = sprites.Length, spriteSheet = e});
 
                     spriteMaterial.material.SetBuffer("_Sprites", spriteMaterial.spriteDataBuffer);
                     
@@ -486,21 +592,46 @@ namespace Squad.SpriteECS
                         typeof(SpriteInstanceSpawning)
                     );
                     //
+
+                    var sqr = (int)math.round(math.sqrt(i.demoEntitiesCount));
+                    float spacing = 20f / sqr;
+                    for (var x = -sqr/2; x < sqr/2; x++)
+                    {
+                        for (var y = -sqr/2; y < sqr/2; y++)
+                        {
+                            var ei = ecb.CreateEntity(ea);
+                            ecb.SetComponent(ei, LocalTransform.FromPositionRotationScale(
+                                new float3(x*spacing, y*spacing, 0),
+                                Quaternion.Euler(0,0, 0),
+                                1f
+                            ));
+                            //ecb.SetComponent(ei, spriteMaterial.getInstanceComponent(rnd.NextUInt(0, (uint) sprites.Length)));
+                            ecb.SetComponent(ei, new SpriteInstanceSpawning()
+                            {
+                                spriteIndex = rnd.NextUInt(0, (uint) sprites.Length),
+                                spriteSheet = e
+                            });
+                        }
+                    }
                     for (var instance = 0; instance < i.demoEntitiesCount; instance++)
                     {
-                        var ei = ecb.CreateEntity(ea);
-                        ecb.SetComponent(ei, LocalTransform.FromPositionRotationScale(
-                            rnd.NextFloat3(-10, 10),
-                            Quaternion.Euler(0,0, rnd.NextFloat(-180, 180)),
-                            rnd.NextFloat(0.25f, 1.25f)
-                        ));
-                        //ecb.SetComponent(ei, spriteMaterial.getInstanceComponent(rnd.NextUInt(0, (uint) sprites.Length)));
-                        ecb.SetComponent(ei, new SpriteInstanceSpawning()
-                        {
-                            spriteIndex = rnd.NextUInt(0, (uint) sprites.Length),
-                            spriteSheet = e
-                        });
                     }
+                    
+                    // for (var instance = 0; instance < i.demoEntitiesCount; instance++)
+                    // {
+                    //     var ei = ecb.CreateEntity(ea);
+                    //     ecb.SetComponent(ei, LocalTransform.FromPositionRotationScale(
+                    //         rnd.NextFloat3(-10, 10),
+                    //         Quaternion.Euler(0,0, rnd.NextFloat(-180, 180)),
+                    //         rnd.NextFloat(0.25f, 1.25f)
+                    //     ));
+                    //     //ecb.SetComponent(ei, spriteMaterial.getInstanceComponent(rnd.NextUInt(0, (uint) sprites.Length)));
+                    //     ecb.SetComponent(ei, new SpriteInstanceSpawning()
+                    //     {
+                    //         spriteIndex = rnd.NextUInt(0, (uint) sprites.Length),
+                    //         spriteSheet = e
+                    //     });
+                    // }
                     //
                     //
   

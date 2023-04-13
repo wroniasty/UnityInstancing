@@ -77,8 +77,10 @@ namespace Squad.SpriteECS
         public uint spriteIndex;
     }
 
-    public struct SpriteInstanceDespawning : ICleanupComponentData
+    public struct SpriteInstanceDespawning : IComponentData
     {
+        public Entity spriteSheet;
+        public int bufferIndex;
     }
     
     public class SpriteSheetInitComponent : IComponentData
@@ -87,7 +89,7 @@ namespace Squad.SpriteECS
         public int demoEntitiesCount = 1000;
     }
 
-    public struct SpriteComponent : ICleanupComponentData
+    public struct SpriteComponent : IComponentData
     {
         public Entity spriteSheet;
         public uint spriteIndex;
@@ -301,30 +303,33 @@ namespace Squad.SpriteECS
 
             var despawnCount = 0;
             //
-            foreach (var (desp,inst, e) in SystemAPI.Query<RefRO<SpriteInstanceDespawning>, RefRO<SpriteComponent>>().WithEntityAccess())
+            foreach (var (desp, e) in SystemAPI.Query<RefRO<SpriteInstanceDespawning>>().WithEntityAccess())
             {
-                var spriteSheetEntity = inst.ValueRO.spriteSheet;
+                var spriteSheetEntity = desp.ValueRO.spriteSheet;
                 var i2e = _i2eBuffer[spriteSheetEntity];
 
-                _ecb.RemoveComponent<SpriteInstanceDespawning>(e);
-                _ecb.RemoveComponent<SpriteComponent>(e);
+                //_ecb.RemoveComponent<SpriteInstanceDespawning>(e);
+                _ecb.DestroyEntity(e);
+                //_ecb.RemoveComponent<SpriteComponent>(e);
                 
-                if (!count.ContainsKey(inst.ValueRO.spriteSheet))
+                if (!count.ContainsKey(desp.ValueRO.spriteSheet))
                 {
                     count.Add(spriteSheetEntity, _instancesCounter[spriteSheetEntity].activeInstances);
                 }
 
-                if (inst.ValueRO.bufferIndex < count[spriteSheetEntity] - 1)
+                var lastBufferIndex = count[spriteSheetEntity] - 1;
+                var lastEntity = i2e[lastBufferIndex].entity;
+
+                if (desp.ValueRO.bufferIndex < lastBufferIndex && _spriteComponent.HasComponent(lastEntity))
                 {
-                    var lastEntity = i2e[count[spriteSheetEntity] - 1].entity;
-                    var lastEntitySprite = _spriteComponent[lastEntity];
+                    var lastEntitySprite = _spriteComponent.GetRefRO(lastEntity);
                     _ecb.SetComponent(lastEntity, new SpriteComponent()
                     {
-                        spriteIndex = lastEntitySprite.spriteIndex,
-                        spriteSheet = lastEntitySprite.spriteSheet,
-                        bufferIndex = inst.ValueRO.bufferIndex
+                        spriteIndex = lastEntitySprite.ValueRO.spriteIndex,
+                        spriteSheet = lastEntitySprite.ValueRO.spriteSheet,
+                        bufferIndex = desp.ValueRO.bufferIndex
                     });
-                    i2e[inst.ValueRO.bufferIndex] = new BufferIndexToEntityMap()
+                    i2e[desp.ValueRO.bufferIndex] = new BufferIndexToEntityMap()
                     {
                          entity = lastEntity
                     };
@@ -390,9 +395,9 @@ namespace Squad.SpriteECS
                     {
                         if (c.activeInstances > 0)
                         {
-                            if (ib.Length <= c.activeInstances) ib.Resize(c.activeInstances, NativeArrayOptions.ClearMemory);
-                            if (tb.Length <= c.activeInstances) tb.Resize(c.activeInstances, NativeArrayOptions.ClearMemory);
-                            if (i2e.Length <= c.activeInstances) i2e.Resize(c.activeInstances, NativeArrayOptions.ClearMemory);
+                            if (ib.Length <= c.activeInstances) ib.Resize(c.activeInstances+1, NativeArrayOptions.ClearMemory);
+                            if (tb.Length <= c.activeInstances) tb.Resize(c.activeInstances+1, NativeArrayOptions.ClearMemory);
+                            if (i2e.Length <= c.activeInstances) i2e.Resize(c.activeInstances+1, NativeArrayOptions.ClearMemory);
                         }
                     })
                     .WithoutBurst()
@@ -452,13 +457,21 @@ namespace Squad.SpriteECS
             //var _ecb = new EntityCommandBuffer(Allocator.Temp, PlaybackPolicy.SinglePlayback); 
             float deltaTime = SystemAPI.Time.DeltaTime;
             int expired = 0;
-            foreach (var (t, e) in SystemAPI.Query<RefRW<TimeToLive>>().WithEntityAccess())
+            foreach (var (t, sc, e) in SystemAPI.Query<RefRW<TimeToLive>, RefRO<SpriteComponent>>().WithEntityAccess())
             {
                 t.ValueRW.ttl -= deltaTime;
                 if (t.ValueRW.ttl <= 0f)
                 {
                     _ecb.RemoveComponent<TimeToLive>(e);
+                    //_ecb.RemoveComponent<SpriteComponent>(e);
                     _ecb.AddComponent<SpriteInstanceDespawning>(e);
+                    _ecb.SetComponent<SpriteInstanceDespawning>(e, new SpriteInstanceDespawning()
+                    {
+                        bufferIndex = sc.ValueRO.bufferIndex,
+                        spriteSheet = sc.ValueRO.spriteSheet
+                    });
+                    
+                    
                     expired++;
                     //_ecb.DestroyEntity(e);
                 }

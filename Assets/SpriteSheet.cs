@@ -8,8 +8,6 @@ namespace Squad
     {
         public Texture2D[] textures;
         public int demoEntities = 1000;
-
-
     }
     
     public struct SpriteSheetContainer : IComponentData {}

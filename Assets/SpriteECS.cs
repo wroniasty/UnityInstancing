@@ -24,7 +24,7 @@ using MRandom = Unity.Mathematics.Random;
 
 namespace Squad.SpriteECS
 {
-
+/*
     public class SpriteMaterialComponent : IComponentData, IEquatable<SpriteMaterialComponent>, IDisposable
     {
         public Entity spriteSheet;
@@ -666,7 +666,7 @@ namespace Squad.SpriteECS
         }
     }
     
-    
+*/    
     
     
 }

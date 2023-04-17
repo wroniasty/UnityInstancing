@@ -4,14 +4,20 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using DefaultNamespace;
+using ProceduralToolkit;
 using Squad.SpriteECS;
 using TreeEditor;
 using Unity.Collections;
+using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Physics;
+using Unity.Transforms;
 using UnityEditor;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.SocialPlatforms;
+using Material = UnityEngine.Material;
 using MRandom = Unity.Mathematics.Random;
 
 namespace Squad.NoECS
@@ -23,17 +29,24 @@ namespace Squad.NoECS
         public float2 pivot;
     }
     
-    public struct SpriteInstanceShaderData
+    public struct SpriteInstanceShaderData : IComponentData
     {
         public float4 color;
         public int spriteIndex;
+        public int spritesheetIndex;
+    }
+
+    public struct SpritesheetIndex : IComponentData
+    {
+        public int index;
     }
 
     [Serializable]
-    public class RuntimeSpritesheetInfo
+    public class RuntimeSpritesheetInfo 
     {
         public Sprite[] sprites;
 
+        
         public NativeArray<SpriteData> SpriteDataArray;
         public GraphicsBuffer SpriteDataBuffer;
 
@@ -109,6 +122,12 @@ namespace Squad.NoECS
                 
             }            
         }
+        public void Dispose()
+        {
+            SpriteInstanceTransformsArray.Dispose();
+            SpriteInstanceShaderDataArray.Dispose();
+            SpriteInstanceDataBuffer.Release();
+        }
 
         public static RuntimeSpritesheetInfo FromTexture2D(Texture2D texture)
         {
@@ -154,6 +173,51 @@ namespace Squad.NoECS
         
         
     }
+
+    [UpdateInGroup(typeof(PresentationSystemGroup))]
+    public partial class SomeFuckedSystem : SystemBase
+    {
+        public EntityQuery _query;
+        public NativeArray<SpriteInstanceShaderData> _instances;
+        public NativeArray<Matrix4x4> _transforms;
+        
+        protected override void OnCreate()
+        {
+            _query = (new EntityQueryBuilder(Allocator.Temp))
+                .WithAll<LocalTransform>()
+                .WithAll<SpritesheetIndex>()
+                .WithAll<SpriteInstanceShaderData>()
+                .Build(EntityManager);
+
+            _instances = new NativeArray<SpriteInstanceShaderData>(128, Allocator.Persistent);
+            _transforms = new NativeArray<Matrix4x4>(128, Allocator.Persistent);
+        }
+
+        protected override void OnUpdate()
+        {
+            var cnt = _query.CalculateEntityCount();
+            ComponentLookup<LocalTransform> _ltLookup = GetComponentLookup<LocalTransform>(true);
+
+            while (cnt > _instances.Length)
+            {
+                _instances.ResizeArray(_instances.Length * 2);
+                _transforms.ResizeArray(_instances.Length * 2);
+            }
+
+            var ea = _query.ToEntityArray(Allocator.Temp);
+
+            for (var i = 0; i < ea.Length; i++)
+            {
+                var lt = _ltLookup[ea[i]];
+                _transforms[i] = lt.ToMatrix();
+            }
+
+            ea.Dispose();
+
+
+
+        }
+    }
     
     public class SpriteManager : MonoBehaviour
     {
@@ -172,6 +236,10 @@ namespace Squad.NoECS
         {
             runtimeInfo = new RuntimeSpritesheetInfo[textures.Length];
             
+            var ecbSystem = World.DefaultGameObjectInjectionWorld
+                .GetOrCreateSystemManaged<EndInitializationEntityCommandBufferSystem>();
+            var ecb = ecbSystem.CreateCommandBuffer();
+
             for (var i = 0; i < textures.Length; i++)
             {
                 var texture = textures[i];
@@ -203,26 +271,56 @@ namespace Squad.NoECS
             if (toSpawn > 0)
             {
                 MRandom rnd = new MRandom((uint) DateTime.Now.Ticks);
+                
+                var ecbSystem = World.DefaultGameObjectInjectionWorld
+                    .GetOrCreateSystemManaged<EndInitializationEntityCommandBufferSystem>();
+                var ecb = ecbSystem.CreateCommandBuffer();
+                
                 for (var i = 0; i < toSpawn; i++)
                 {
-                    var rt = runtimeInfo[rnd.NextInt(0, runtimeInfo.Length)];
-                    rt.SpawnInstance(rnd.NextInt(0, rt.SpritesCount),
+                    var rtIndex = rnd.NextInt(0, runtimeInfo.Length);
+                    var rt = runtimeInfo[rtIndex];
+                    var e = ecb.CreateEntity();
+                    ecb.AddComponent(e, new SpriteInstanceShaderData()
+                    {
+                        spriteIndex = rnd.NextInt(0, rt.SpritesCount),
+                        color = 1.0f
+                    });
+                    ecb.AddComponent(e, LocalTransform.FromMatrix(
                         Matrix4x4.Translate(new Vector3(
                             rnd.NextFloat(-20, 20),
                             rnd.NextFloat(-20, 20),
                             0
-                        )), 1.0f
-                    );
+                        ))                             
+                        ));
+                    ecb.AddComponent(e, new SpritesheetIndex()
+                    {
+                        index = rtIndex
+                    });
+
+                    ecb.SetName(e, $"00_Spawned_{i}_{rt.material.mainTexture.name}");
                 }
+                
+                // for (var i = 0; i < toSpawn; i++)
+                // {
+                //     var rt = runtimeInfo[rnd.NextInt(0, runtimeInfo.Length)];
+                //     rt.SpawnInstance(rnd.NextInt(0, rt.SpritesCount),
+                //         Matrix4x4.Translate(new Vector3(
+                //             rnd.NextFloat(-20, 20),
+                //             rnd.NextFloat(-20, 20),
+                //             0
+                //         )), 1.0f
+                //     );
+                // }
             } else if (toDespawn > 0)
             {
                 MRandom rnd = new MRandom((uint) DateTime.Now.Ticks);
-                for (var i = 0; i < toDespawn; i++)
-                {
-                    var rt = runtimeInfo[rnd.NextInt(0, runtimeInfo.Length)];
-                    if (rt.activeInstances > 0)
-                        rt.DespawnInstance(rnd.NextInt(0, rt.activeInstances));
-                }
+                // for (var i = 0; i < toDespawn; i++)
+                // {
+                //     var rt = runtimeInfo[rnd.NextInt(0, runtimeInfo.Length)];
+                //     if (rt.activeInstances > 0)
+                //         rt.DespawnInstance(rnd.NextInt(0, rt.activeInstances));
+                // }
             }
         }
 
@@ -234,6 +332,14 @@ namespace Squad.NoECS
                 rt.Render();
             }
         }
+        
+        void OnDestroy()
+        {
+            foreach (var rt in runtimeInfo)
+            {
+                rt.Dispose();
+            }
+        }        
     }
 
 }

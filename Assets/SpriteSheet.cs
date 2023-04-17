@@ -19,11 +19,11 @@ namespace Squad
             Debug.Log("Baking");
             //var parent = GetEntity(TransformUsageFlags.WorldSpace); 
             //AddComponent<SpriteSheetContainer>(parent);
-            for (var i = 0; i < authoring.textures.Length; i++)
-            {
-                var ess = CreateAdditionalEntity(TransformUsageFlags.None);
-                AddComponentObject(ess, new SpriteECS.SpriteSheetInitComponent() { texture = authoring.textures[i], demoEntitiesCount = authoring.demoEntities });
-            }
+            // for (var i = 0; i < authoring.textures.Length; i++)
+            // {
+            //     var ess = CreateAdditionalEntity(TransformUsageFlags.None);
+            //     AddComponentObject(ess, new SpriteECS.SpriteSheetInitComponent() { texture = authoring.textures[i], demoEntitiesCount = authoring.demoEntities });
+            // }
 
         }
     }    

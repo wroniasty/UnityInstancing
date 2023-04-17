@@ -41,6 +41,7 @@ Shader "Squad/DrawMeshInstanced1"
             {
                 fixed4 color;
                 uint spriteIndex;
+                uint spritesheetIndex;
             };
 
             struct SpriteData

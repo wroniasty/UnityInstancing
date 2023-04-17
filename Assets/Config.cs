@@ -27,25 +27,23 @@ public class Config : MonoBehaviour
     {
         //GUI.Button(Rect.)
         
-
-        if (GUI.Button(new Rect(10, 10, 300, 60), "Add"))
-        {
-            var s = World.DefaultGameObjectInjectionWorld.GetOrCreateSystemManaged<SpriteSheetBakingSystem>();
-            
-            var em = World.DefaultGameObjectInjectionWorld.EntityManager;
-            var ec = em.CreateArchetype(
-                typeof(LocalTransform), typeof(SpriteInstanceSpawning));
-            
-            var e = em.CreateEntity(ec);
-            em.SetComponentData(e, new SpriteInstanceSpawning()
-            {
-                spriteSheet = s.spritesheets[0].spriteSheet,
-                spriteIndex = _rnd.NextUInt(0, (uint)s.spritesheets[0].spritesCount) 
-            });
-            em.SetComponentData(e, LocalTransform.FromPosition(_rnd.NextFloat3(-10, 10)));
-            
-            
-        }
+        //
+        // if (GUI.Button(new Rect(10, 10, 300, 60), "Add"))
+        // {
+        //     var s = World.DefaultGameObjectInjectionWorld.GetOrCreateSystemManaged<SpriteSheetBakingSystem>();
+        //     
+        //     var em = World.DefaultGameObjectInjectionWorld.EntityManager;
+        //     var ec = em.CreateArchetype(
+        //         typeof(LocalTransform), typeof(SpriteInstanceSpawning));
+        //     
+        //     var e = em.CreateEntity(ec);
+        //     em.SetComponentData(e, new SpriteInstanceSpawning()
+        //     {
+        //         spriteSheet = s.spritesheets[0].spriteSheet,
+        //         spriteIndex = _rnd.NextUInt(0, (uint)s.spritesheets[0].spritesCount) 
+        //     });
+        //     em.SetComponentData(e, LocalTransform.FromPosition(_rnd.NextFloat3(-10, 10)));
+        // }
 
     }
 }
